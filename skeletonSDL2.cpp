@@ -77,10 +77,16 @@ void Draw()
 				//testing if we are inside (with euclidian distance)
 				float distanceToCenter = glm::distance(currentPos, sphereCenter);
 				if(distanceToCenter < radius){
-					//we are inside the sphere -> image 0
-					pixelColor = vec3(1.0, 1.0, 1.0);
-					break; 
+					// //we are inside the sphere -> image 0
+					// pixelColor = vec3(1.0, 1.0, 1.0);
+					// break; 
+
+					//************** image1: nebula effect*/
+					float density = (radius - distanceToCenter); //more dense in the center (think about a cloud)
+					opacity += density*stepSize;
 				}
+				pixelColor = vec3(1.0)*opacity;
+				//************** */
 			}
 			sdlAux->putPixel(x, y, pixelColor);
 		}
