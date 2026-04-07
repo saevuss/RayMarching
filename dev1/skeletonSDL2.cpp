@@ -25,10 +25,10 @@ using glm::mat3;
 const int SCREEN_WIDTH = 640;
 const int SCREEN_HEIGHT = 480;
 SDL2Aux *sdlAux;
-vec3 cameraPos(0, 0, -2);
+vec3 cameraPos(0, 0, -1.0f);
 float focalLength = SCREEN_HEIGHT/2;
-glm::mat3 R; //rotation matrix
-float yaw; //angle which the camera should be rotated around the y-axis
+glm::mat3 R = glm::mat3(1.0f); //rotation matrix
+float yaw = 0; //angle which the camera should be rotated around the y-axis
 float speed = 0.0005f;
 float rotateSpeed = 0.0005f;
 int t;
@@ -72,29 +72,50 @@ void Draw()
                 y - SCREEN_HEIGHT/2,
                 focalLength
             );
-			dir = glm::normalize(dir); //we normalize dir to have stepSize constant
+
+			//multypling by R to rotate direction of the ray with respect to the camera
+			dir = R * glm::normalize(dir); //we normalize dir to have stepSize constant
 			vec3 currentPos = cameraPos;
 			vec3 pixelColor(0, 0, 0); //the background is black
 			float opacity = 0;
 
 
 			//ray marching loop: checking if we are in the sphere
+			float transmittance = 1.0f;
+
 			for(int i=0; i<64; i++){
 				//in a for cycle we go on with little steps
 				currentPos += dir * stepSize;
 
 				//testing if we are inside (with euclidian distance)
 				float distanceToCenter = glm::distance(currentPos, sphereCenter);
+				
+				
 				if(distanceToCenter < radius){
+
 					// //we are inside the sphere -> image 0
 					// pixelColor = vec3(1.0, 1.0, 1.0);
 					// break; 
 
 					//************** image1: nebula effect*/
-					float density = (radius - distanceToCenter); //more dense in the center (think about a cloud)
-					opacity += density*stepSize;
+					//float density = (radius - distanceToCenter); //more dense in the center (think about a cloud)
+					/************** */
+
+					//models the density with a spatial frequency
+					float noise = (sin(currentPos.x*10.0f)*cos(currentPos.y*10.0f)*sin(currentPos.z*10.0f)) * 0.5f + 0.5f;
+					float density = (radius - distanceToCenter)*noise;
+					
+					float absorption = 0.5f; //coefficient of absorption
+					float localOpacity = density * stepSize * absorption; 
+
+					float brightness = 10.0f;
+					pixelColor += transmittance * localOpacity * vec3(1.0, 1.0, 1.0) * brightness;
+					
+					transmittance *= (1.0f - localOpacity); //reducing light that passes for future samples
+					//opacity += density*stepSize;
+					if(transmittance <= 0.01f) break; //if all is opaque, break
+
 				}
-				pixelColor = vec3(1.0)*opacity;
 				//************** */
 			}
 			sdlAux->putPixel(x, y, pixelColor);
