@@ -10,11 +10,15 @@
 
 #include <iostream>
 #include <glm/glm.hpp>
-#include <vector>
-#include "SDL2Auxiliary/SDL2Auxiliary.h"
+#include "../SDL2Auxiliary/SDL2Auxiliary.h"
+#include "TestModel.h"
+#include <algorithm>
+#include <numbers>
+#include <cmath>
 
 using namespace std;
 using glm::vec3;
+using glm::mat3;
 
 // ---------------------------------------------------------
 // GLOBAL VARIABLES
@@ -23,7 +27,11 @@ const int SCREEN_HEIGHT = 480;
 SDL2Aux *sdlAux;
 vec3 cameraPos(0, 0, -2);
 float focalLength = SCREEN_HEIGHT/2;
-
+glm::mat3 R; //rotation matrix
+float yaw; //angle which the camera should be rotated around the y-axis
+float speed = 0.0005f;
+float rotateSpeed = 0.0005f;
+int t;
 
 // ---------------------------------------------------------
 // FUNCTION DECLARATIONS
@@ -36,8 +44,9 @@ int main(int argc, char* argv[])
 {	
 
 	sdlAux = new SDL2Aux(SCREEN_WIDTH, SCREEN_HEIGHT);
+	t = SDL_GetTicks();
 	while (!sdlAux->quitEvent()) {
-		//Update();
+		Update();
 		Draw();
 	}
 	
@@ -97,5 +106,71 @@ void Draw()
 }
 
 
-void Update(){
-}
+void Update(void)
+{	//vec3 cameraPos(0, 0, -2);
+	// Compute frame time:
+	int t2 = SDL_GetTicks();
+	float dt = float(t2-t);
+	t = t2;
+	//cout << "Render time: " << dt << " ms." << endl;
+	const Uint8 *keystate = SDL_GetKeyboardState(NULL);
+	
+	if(keystate [SDL_SCANCODE_LEFT] )
+	{
+		// Move camera to the left, negative x axis
+		//cameraPos.x -= dt*speed;
+		yaw -= rotateSpeed*dt; //update of yaw 
+        
+	}
+	if(keystate [SDL_SCANCODE_RIGHT] )
+	{
+		// Move camera to the right, positive x axis
+		//cameraPos.x += dt*speed;
+		yaw += rotateSpeed*dt;//update of yaw 
+	}
+	/** */
+
+	R = mat3(
+		vec3 (cos(yaw), 0, -sin(yaw)), 
+		vec3(0, 1, 0),
+		vec3(sin(yaw), 0, cos(yaw))
+	);
+
+	//task 5.4
+	vec3 right(		R[0][0], R[0][1], R[0][2]);
+	vec3 down(		R[1][0], R[1][1], R[1][2]);
+	vec3 forward (	R[2][0], R[2][1], R[2][2]);	
+	if ( keystate [SDL_SCANCODE_UP] )
+	{
+	 	//move camera forward, towards z positive
+	 	cameraPos += dt*speed * forward;
+	}
+	if(keystate [SDL_SCANCODE_DOWN])
+	{
+		// Move camera backward, towards z negative
+		cameraPos -= dt*speed * forward;
+	}
+	if(keystate [SDL_SCANCODE_L] )
+	{
+		// Move camera to the left, negative x axis
+		cameraPos -= dt*speed*right;
+        
+	}
+	if(keystate [SDL_SCANCODE_R] )
+	{
+		// Move camera to the right, positive x axis
+		cameraPos += dt*speed*right;
+	}
+	if(keystate [SDL_SCANCODE_U] )
+	{
+		// Move camera to the left, negative x axis
+		cameraPos -= dt*speed*down;
+        
+	}
+	if(keystate [SDL_SCANCODE_B] )
+	{
+		// Move camera to the right, positive x axis
+		cameraPos += dt*speed*down;
+	}
+
+};
