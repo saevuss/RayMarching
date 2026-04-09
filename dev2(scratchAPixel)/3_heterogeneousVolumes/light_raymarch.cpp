@@ -5,13 +5,13 @@
 #include <iostream>
 #include <fstream>
 #include <memory>
-#include <algorithm>
 #include "SDL2Auxiliary/SDL2Auxiliary.h"
 #include <vector>
 #include <random>
 #include <glm.hpp>
-#include "glm/glm/gtx/constants.hpp"
+#include <algorithm>
 #include "utils/noise.h"
+#include <gtc/constants.hpp>
 
 using namespace std;
 using glm::vec3;
@@ -47,6 +47,8 @@ void Draw();
 void Update();
 float phase(const float &g, const float &cos_theta);
 float eval_density(const vec3& p);
+float eval_density(const vec3& sample_pos, const vec3& sphere_center, const float& sphere_radius);
+float smoothstep(float lo, float hi, float x);
 
 void Update(void)
 {	//vec3 cameraPos(0, 0, -2);
@@ -54,6 +56,7 @@ void Update(void)
 	int t2 = SDL_GetTicks();
 	float dt = float(t2-t);
 	t = t2;
+
 	//cout << "Render time: " << dt << " ms." << endl;
     	R = mat3(
 		vec3 (cos(yaw), 0, -sin(yaw)), 
@@ -187,17 +190,17 @@ vec3 traceScene(vec3 ray_origin, vec3 ray_direction, Sphere* sphere){
         //commented this way to calculate the step_size because it slows the movements
         // float projPixWidth = 2 * tanf(M_PI / 180 * 90 / (2 * SCREEN_WIDTH)) * tStart; //consider "how big" is the pixel at the distance where we enter the volume object and set the step size to the dimension of the projected pixel
         // float step_size = projPixWidth == 0 ? 0.2f : projPixWidth; //the reason why ray-marching takes small steps from t0 to t1 is to estimate an integral
-        float step_size = 0.1f;        
+        float step_size = 0.2f;        
         float sigma_t = sphere->sigma_a + sphere->sigma_s; //extinction coefficient
-        float g = 0.8; //asymmetry factor of the phase function
-        uint8_t d = 5.0f; //surviving factor
+        float g = 0.0f; //asymmetry factor of the phase function
+        float d = 5.0f; //surviving factor
 
         int num_steps = std::ceil(distance / step_size); //starting from further point
         step_size = distance/num_steps;
         
-        vec3 light_dir{ 0, -1, 0 }; // light above
+        vec3 light_dir = glm::normalize(vec3( -0.315798, 0.719361, 0.618702 ));
         //vec3 light_dir = glm::normalize(vec3(0.5, -1, 0.5)); //light on the right
-        vec3 light_color{ 1.3, 0.3, 0.9 };
+        vec3 light_color{ 20, 20, 20 };
         vec3 accumulated_color(0.0f); //starting point
         float accumulated_transparency = 1.0f;
 
@@ -206,30 +209,28 @@ vec3 traceScene(vec3 ray_origin, vec3 ray_direction, Sphere* sphere){
             float jitter = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
             float tSample = tStart + step_size * (i + jitter); //forward marching with jittering
             vec3 sample_pos = ray_origin + ray_direction * tSample; //sample position (middle of the step)
-            
             //evaluation of the density at sample location
-            float density = max(0.0f, float((noise(sample_pos) + 1) * 0.5)); 
+            float density = eval_density(sample_pos, sphere->center, sphere->radius);
             //BEER'S LAW
-            float sample_transparency = exp(- density * sigma_t * step_size); //how many light passes through the sample
-            
+                        
             float sample_attenuation = exp(-step_size * density * sigma_t);
             accumulated_transparency *= sample_attenuation;
 
             //how much light arrives here from the light source
             float lt0, lt1;
-            if(sphere->intersect(sample_pos, light_dir, lt0, lt1) && density>0){
+            if(sphere->intersect(sample_pos, light_dir, lt0, lt1) && density>0 && lt0 < 0 && lt1 > 0){
                 size_t num_steps_light = std::ceil(lt1 / step_size);
-                float stide_light = t1 / num_steps_light;
+                float stide_light = lt1 / num_steps_light;
                 float tau = 0;
 
                 //raymarching along the light ray. Store the density values in the tau variable 
                for (size_t n = 0; n < num_steps_light; ++n) {
                     float t_light = stide_light * (n + 0.5);
                     vec3 light_sample_pos = sample_pos + light_dir * t_light; //forward marching
-                    tau += eval_density(light_sample_pos);
+                    tau += eval_density(light_sample_pos, sphere->center, sphere->radius);
                 }
                 float light_ray_att = exp(-tau * stide_light * sigma_t);
-                float cos_theta = glm::dot(-ray_origin, light_dir);
+                float cos_theta = glm::dot(ray_direction, light_dir);
                 accumulated_color += light_color *              // light color
                       light_ray_att *                           // light ray transmission value
                       phase(cos_theta, g) *                     // phase function
@@ -248,12 +249,9 @@ vec3 traceScene(vec3 ray_origin, vec3 ray_direction, Sphere* sphere){
                 if(r > 1/d){
                     break;
                 } else {
-                    accumulated_transparency *= d; //update of how many light passes through the next sample      
+                    accumulated_transparency *= d; //update of how many light cpasses through the next sample      
                 }
                
-            }else{
-                accumulated_transparency *= sample_transparency; //update of how many light passes through the next sample      
-
             }
         }
         return background_color * accumulated_transparency + accumulated_color;
@@ -261,6 +259,58 @@ vec3 traceScene(vec3 ray_origin, vec3 ray_direction, Sphere* sphere){
     } else {
         return background_color;
     }
+}
+
+// float eval_density(const vec3& sample_pos, const vec3& sphere_center, const float& sphere_radius)
+// {
+//     vec3 vp = sample_pos - sphere_center;
+//     float dist = std::min(1.f, glm::length(vp) / sphere_radius);
+//     float falloff = smoothstep(0.8, 1, dist); // smooth transition from 0 to 1 as distance goes from 0.1 to 1
+//     // build an fBm fractal pattern
+//     float frequency = 1;
+//     vp *= frequency; // scale the initial point value if necessary
+//     size_t numOctaves = 5; // number of layers
+//     float lacunarity = 2.f; // gap between successive frequencies
+//     float H = 0.4; // fractal increment parameter
+//     float value = 0; // result of the fBm (use this for our density)
+//     for (size_t i = 0; i < numOctaves; ++i) {
+//         value += noise(vp) * powf(lacunarity, -H * i);
+//         vp *= lacunarity;
+//     }
+
+//     // clip negative values
+//     return std::max(0.f, value) * (1 - falloff);
+// }
+
+float eval_density(const vec3& p, const vec3& center, const float& radius)
+{ 
+    
+    // transform the point from world to object space
+    vec3 vp = p - center;
+    vec3 vp_xform;
+    
+
+    // rotate our sample point in object space (frame is a global variable going from 1 to 120)
+    float theta = SDL_GetTicks() / 5000.f * 2 * M_PI;  //using real time
+    vp_xform.x =  cos(theta) * vp.x + sin(theta) * vp.z;
+    vp_xform.y = vp.y;
+    vp_xform.z = -sin(theta) * vp.x + cos(theta) * vp.z;
+
+    float dist = std::min(1.f, glm::length(vp) / radius);
+    float falloff = smoothstep(0.8, 1, dist);
+    float freq = 0.5;
+    size_t octaves = 5;
+    float lacunarity = 2;
+    float H = 0.4;
+    vp_xform *= freq;
+    float fbmResult = 0;
+    float offset = 0.75;
+    for (size_t k = 0; k < octaves; k++) {
+        fbmResult += noise(vp_xform) * pow(lacunarity, -H * k);
+        vp_xform *= lacunarity;
+    }
+
+    return std::max(0.f, fbmResult) * (1 - falloff);
 }
 
 float eval_density(const vec3& p)
@@ -286,6 +336,12 @@ vec3 computeRay(int x, int y, float focalLength){
         focalLength
     );
     return glm::normalize(R*dir);
+}
+
+float smoothstep(float lo, float hi, float x)
+{
+    float t = std::clamp((x - lo) / (hi - lo), 0.f, 1.f);
+    return t * t * (3.0 - (2.0 * t));
 }
 
 void saveImage(vec3 image_buffer[SCREEN_WIDTH][SCREEN_HEIGHT], const string& filename = "output.ppm") {
