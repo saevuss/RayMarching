@@ -23,6 +23,7 @@ include_directories(
 add_executable(raymarch
   raymarch_chap0.cpp
   ${CMAKE_SOURCE_DIR}/SDL2Auxiliary/SDL2Auxiliary.cpp
+  ${CMAKE_SOURCE_DIR}/utils/noise.cpp
 )
 
 target_link_libraries(raymarch

@@ -11,6 +11,7 @@
 #include <random>
 #include <glm/glm.hpp>
 #include "glm/glm/gtx/constants.hpp"
+#include "utils/noise.h"
 
 using namespace std;
 using glm::vec3;
@@ -110,26 +111,6 @@ void Update(void)
 		// Move camera to the right, positive x axis
 		cameraPos += dt*speed*down;
 	}
-	// if(keystate [SDL_SCANCODE_W] )
-	// {
-	// 	// Move light forward
-	// 	lightPos += dt*speed*forward;
-	// }
-	// if(keystate [SDL_SCANCODE_S] )
-	// {
-	// 	// Move light backward
-	// 	lightPos -= dt*speed*forward;
-	// }
-	// if(keystate [SDL_SCANCODE_D] )
-	// {
-	// 	// Move light to the right
-	// 	lightPos += dt*speed*right;
-	// }
-	// if(keystate [SDL_SCANCODE_A] )
-	// {
-	// 	// Move light to the left
-	// 	lightPos -= dt*speed*right;
-	// }
 
 };
 
@@ -172,8 +153,8 @@ class Sphere: public Object{
 
             return true;
         };
-        float sigma_a = 0.8; //absorption coefficient 
-        float sigma_s = 0.5; // scattering coefficient
+        float sigma_a = 0.1; //absorption coefficient 
+        float sigma_s = 0.8; // scattering coefficient
         //80% is tarnsmitted, the green is absorbed, the blue is transmitted at 50%
         vec3 scatter = vec3(0.8, 0.1, 0.5); // used to determine the final color of the transmitted or reflected light 
         vec3 center = vec3(0, 0, 0);
@@ -182,6 +163,7 @@ class Sphere: public Object{
 
 vec3 traceScene(vec3 ray_origin, vec3 ray_direction, Sphere* sphere){
     float t0, t1;
+    float d = 5.0f; //surviving factor
     if(sphere->intersect(ray_origin, ray_direction, t0, t1)){ //we use -> because we have the pointer, if we have an object we must use .
         if(t1<0){
             //it means that the sphere is behind us
@@ -205,23 +187,27 @@ vec3 traceScene(vec3 ray_origin, vec3 ray_direction, Sphere* sphere){
         //commented this way to calculate the step_size because it slows the movements
         // float projPixWidth = 2 * tanf(M_PI / 180 * 90 / (2 * SCREEN_WIDTH)) * tStart; //consider "how big" is the pixel at the distance where we enter the volume object and set the step size to the dimension of the projected pixel
         // float step_size = projPixWidth == 0 ? 0.2f : projPixWidth; //the reason why ray-marching takes small steps from t0 to t1 is to estimate an integral
-        float step_size = 0.1f;        int num_steps = std::ceil(distance / step_size); //starting from further point
+        float step_size = 0.1f;        
+        int num_steps = std::ceil(distance / step_size); //starting from further point
         step_size = distance/num_steps;
-        vec3 light_dir{ 0, -1, 0 };
+        vec3 light_dir{ 0, -1, 0 }; // light above
+        //vec3 light_dir = glm::normalize(vec3(0.5, -1, 0.5)); //light on the right
         vec3 light_color{ 1.3, 0.3, 0.9 };
         vec3 accumulated_color(0.0f); //starting point
+
+        float sigma_t = sphere->sigma_a + sphere->sigma_s;
         float accumulated_transparency = 1.0f;
 
         float g = 0.8; //asymmetry factor of the phase function
         for(int i = 0; i < num_steps; i++){
             //this is the march
-            float tSample = t1 - step_size * (i + 0.5f); //backward marching, from t1 to tstart if we want to implement forward --> tStart + step_size * (i + 0.5f);
+            float jitter = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
+            float tSample = tStart + step_size * (i + jitter); //forward marching with jittering
             vec3 sample_pos = ray_origin + ray_direction * tSample; //sample position (middle of the step)
             
-
-            float density = 1; //we want some kind of variables that will scale our scattering and absorption coefficient globally
+            float density = (noise(sample_pos) + 1) * 0.5; 
             //BEER'S LAW
-            float sample_transparency = exp(-(sphere->sigma_a + sphere->sigma_s) * step_size); //how many light passes through the sample
+            float sample_transparency = exp(- density * sigma_t * step_size); //how many light passes through the sample
             //how much light arrives here from the light source
             float lt0, lt1;
             if(sphere->intersect(sample_pos, light_dir, lt0, lt1)){
@@ -230,7 +216,22 @@ vec3 traceScene(vec3 ray_origin, vec3 ray_direction, Sphere* sphere){
                 float light_attenuation = exp(-lt1 * density* (sphere->sigma_a + sphere->sigma_s));
                 accumulated_color += phase(g, cos_theta) * light_color * light_attenuation * sphere->sigma_s * density* step_size; //if density = 0, nothing is added to the result!!
             };
-            accumulated_transparency *= sample_transparency; //update of how many light passes through the next sample
+            if (accumulated_transparency < 1e-3){
+                /*breaking out from the ray-marching loop as soon as you detect that the 
+                transparency variable is lower than this minimum threshold */
+
+                //implementing russina roulette
+                float r = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX); 
+                if(r > 1/d){
+                    break;
+                } else {
+                    accumulated_transparency *= sample_transparency; //update of how many light passes through the next sample      
+                }
+               
+            }else{
+                accumulated_transparency *= sample_transparency; //update of how many light passes through the next sample      
+
+            }
         }
         return background_color * accumulated_transparency + accumulated_color;
 

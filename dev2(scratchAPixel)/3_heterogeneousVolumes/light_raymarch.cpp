@@ -11,6 +11,7 @@
 #include <random>
 #include <glm/glm.hpp>
 #include "glm/glm/gtx/constants.hpp"
+#include "utils/noise.h"
 
 using namespace std;
 using glm::vec3;
@@ -45,6 +46,7 @@ void saveImage(vec3 image_buffer[SCREEN_WIDTH][SCREEN_HEIGHT], const std::string
 void Draw();
 void Update();
 float phase(const float &g, const float &cos_theta);
+float eval_density(const vec3& p);
 
 void Update(void)
 {	//vec3 cameraPos(0, 0, -2);
@@ -110,26 +112,6 @@ void Update(void)
 		// Move camera to the right, positive x axis
 		cameraPos += dt*speed*down;
 	}
-	// if(keystate [SDL_SCANCODE_W] )
-	// {
-	// 	// Move light forward
-	// 	lightPos += dt*speed*forward;
-	// }
-	// if(keystate [SDL_SCANCODE_S] )
-	// {
-	// 	// Move light backward
-	// 	lightPos -= dt*speed*forward;
-	// }
-	// if(keystate [SDL_SCANCODE_D] )
-	// {
-	// 	// Move light to the right
-	// 	lightPos += dt*speed*right;
-	// }
-	// if(keystate [SDL_SCANCODE_A] )
-	// {
-	// 	// Move light to the left
-	// 	lightPos -= dt*speed*right;
-	// }
 
 };
 
@@ -172,7 +154,7 @@ class Sphere: public Object{
 
             return true;
         };
-        float sigma_a = 0.8; //absorption coefficient 
+        float sigma_a = 0.5; //absorption coefficient 
         float sigma_s = 0.5; // scattering coefficient
         //80% is tarnsmitted, the green is absorbed, the blue is transmitted at 50%
         vec3 scatter = vec3(0.8, 0.1, 0.5); // used to determine the final color of the transmitted or reflected light 
@@ -205,38 +187,86 @@ vec3 traceScene(vec3 ray_origin, vec3 ray_direction, Sphere* sphere){
         //commented this way to calculate the step_size because it slows the movements
         // float projPixWidth = 2 * tanf(M_PI / 180 * 90 / (2 * SCREEN_WIDTH)) * tStart; //consider "how big" is the pixel at the distance where we enter the volume object and set the step size to the dimension of the projected pixel
         // float step_size = projPixWidth == 0 ? 0.2f : projPixWidth; //the reason why ray-marching takes small steps from t0 to t1 is to estimate an integral
-        float step_size = 0.1f;        int num_steps = std::ceil(distance / step_size); //starting from further point
+        float step_size = 0.1f;        
+        float sigma_t = sphere->sigma_a + sphere->sigma_s; //extinction coefficient
+        float g = 0.8; //asymmetry factor of the phase function
+        uint8_t d = 5.0f; //surviving factor
+
+        int num_steps = std::ceil(distance / step_size); //starting from further point
         step_size = distance/num_steps;
-        vec3 light_dir{ 0, -1, 0 };
+        
+        vec3 light_dir{ 0, -1, 0 }; // light above
+        //vec3 light_dir = glm::normalize(vec3(0.5, -1, 0.5)); //light on the right
         vec3 light_color{ 1.3, 0.3, 0.9 };
         vec3 accumulated_color(0.0f); //starting point
         float accumulated_transparency = 1.0f;
 
-        float g = 0.8; //asymmetry factor of the phase function
         for(int i = 0; i < num_steps; i++){
             //this is the march
-            float tSample = t1 - step_size * (i + 0.5f); //backward marching, from t1 to tstart if we want to implement forward --> tStart + step_size * (i + 0.5f);
+            float jitter = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
+            float tSample = tStart + step_size * (i + jitter); //forward marching with jittering
             vec3 sample_pos = ray_origin + ray_direction * tSample; //sample position (middle of the step)
             
-
-            float density = 1; //we want some kind of variables that will scale our scattering and absorption coefficient globally
+            //evaluation of the density at sample location
+            float density = max(0.0f, float((noise(sample_pos) + 1) * 0.5)); 
             //BEER'S LAW
-            float sample_transparency = exp(-(sphere->sigma_a + sphere->sigma_s) * step_size); //how many light passes through the sample
+            float sample_transparency = exp(- density * sigma_t * step_size); //how many light passes through the sample
+            
+            float sample_attenuation = exp(-step_size * density * sigma_t);
+            accumulated_transparency *= sample_attenuation;
+
             //how much light arrives here from the light source
             float lt0, lt1;
-            if(sphere->intersect(sample_pos, light_dir, lt0, lt1)){
-                //in-scattering calculation -> light toward eyes
-                float cos_theta = glm::dot(ray_direction, light_dir);
-                float light_attenuation = exp(-lt1 * density* (sphere->sigma_a + sphere->sigma_s));
-                accumulated_color += phase(g, cos_theta) * light_color * light_attenuation * sphere->sigma_s * density* step_size; //if density = 0, nothing is added to the result!!
+            if(sphere->intersect(sample_pos, light_dir, lt0, lt1) && density>0){
+                size_t num_steps_light = std::ceil(lt1 / step_size);
+                float stide_light = t1 / num_steps_light;
+                float tau = 0;
+
+                //raymarching along the light ray. Store the density values in the tau variable 
+               for (size_t n = 0; n < num_steps_light; ++n) {
+                    float t_light = stide_light * (n + 0.5);
+                    vec3 light_sample_pos = sample_pos + light_dir * t_light; //forward marching
+                    tau += eval_density(light_sample_pos);
+                }
+                float light_ray_att = exp(-tau * stide_light * sigma_t);
+                float cos_theta = glm::dot(-ray_origin, light_dir);
+                accumulated_color += light_color *              // light color
+                      light_ray_att *                           // light ray transmission value
+                      phase(cos_theta, g) *                     // phase function
+                      sphere->sigma_s *                         // scattering coefficient
+                      accumulated_transparency *                // ray current transmission value
+                      step_size *                                  // dx in our Riemann sum
+                      density;                                  // volume density at the sample location
+
             };
-            accumulated_transparency *= sample_transparency; //update of how many light passes through the next sample
+            if (accumulated_transparency < 1e-3){
+                /*breaking out from the ray-marching loop as soon as you detect that the 
+                transparency variable is lower than this minimum threshold */
+
+                //implementing russina roulette
+                float r = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX); 
+                if(r > 1/d){
+                    break;
+                } else {
+                    accumulated_transparency *= d; //update of how many light passes through the next sample      
+                }
+               
+            }else{
+                accumulated_transparency *= sample_transparency; //update of how many light passes through the next sample      
+
+            }
         }
         return background_color * accumulated_transparency + accumulated_color;
 
     } else {
         return background_color;
     }
+}
+
+float eval_density(const vec3& p)
+{ 
+    float freq = 1;
+    return (1 + noise(p*freq)) * 0.5;
 }
 
 float phase(const float &g, const float &cos_theta){
