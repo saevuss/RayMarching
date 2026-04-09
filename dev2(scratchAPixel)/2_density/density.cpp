@@ -10,6 +10,7 @@
 #include <vector>
 #include <random>
 #include <glm/glm.hpp>
+#include "glm/glm/gtx/constants.hpp"
 
 using namespace std;
 using glm::vec3;
@@ -27,6 +28,13 @@ float yaw;
 float speed = 0.0005f;
 float rotateSpeed = 0.0005f;
 
+// struct IsectData
+// {
+//     float t0{ floatMax }, t1{ floatMax };
+//     vec3 pHit;
+//     vec3 nHit;
+//     bool inside{ false };
+// };
 
 
 const vec3 background_color{ 0.572f, 0.772f, 0.921f };
@@ -36,6 +44,7 @@ vec3 computeRay(int x, int y, float focalLength);
 void saveImage(vec3 image_buffer[SCREEN_WIDTH][SCREEN_HEIGHT], const std::string& filename);
 void Draw();
 void Update();
+float phase(const float &g, const float &cos_theta);
 
 void Update(void)
 {	//vec3 cameraPos(0, 0, -2);
@@ -44,6 +53,16 @@ void Update(void)
 	float dt = float(t2-t);
 	t = t2;
 	//cout << "Render time: " << dt << " ms." << endl;
+    	R = mat3(
+		vec3 (cos(yaw), 0, -sin(yaw)), 
+		vec3(0, 1, 0),
+		vec3(sin(yaw), 0, cos(yaw))
+	);
+
+	//task 5.4
+	vec3 right(		R[0][0], R[0][1], R[0][2]);
+	vec3 down(		R[1][0], R[1][1], R[1][2]);
+	vec3 forward (	R[2][0], R[2][1], R[2][2]);	
 	const Uint8 *keystate = SDL_GetKeyboardState(NULL);
 	
 	if(keystate [SDL_SCANCODE_LEFT] )
@@ -59,28 +78,6 @@ void Update(void)
 		//cameraPos.x += dt*speed;
 		yaw += rotateSpeed*dt;//update of yaw 
 	}
-	/*
-
-	Update the rotation matrix R
-
-	pag 163 of course book
-
-	Ry = 
-	| cos(θ) 	0 	sin(θ) | //right vector
-	| 0 	 	1 	0 	   | //down  vector
-	| -sin(θ) 	0	cos(θ) | //forward vector
-	*/
-	//update of the rotation matrix
-	R = mat3(
-		vec3 (cos(yaw), 0, -sin(yaw)), 
-		vec3(0, 1, 0),
-		vec3(sin(yaw), 0, cos(yaw))
-	);
-
-	//task 5.4
-	vec3 right(		R[0][0], R[0][1], R[0][2]);
-	vec3 down(		R[1][0], R[1][1], R[1][2]);
-	vec3 forward (	R[2][0], R[2][1], R[2][2]);	
 	if ( keystate [SDL_SCANCODE_UP] )
 	{
 	 	//move camera forward, towards z positive
@@ -175,7 +172,8 @@ class Sphere: public Object{
 
             return true;
         };
-        float sigma_a = 0.5; //absorption coefficient 
+        float sigma_a = 0.8; //absorption coefficient 
+        float sigma_s = 0.5; // scattering coefficient
         //80% is tarnsmitted, the green is absorbed, the blue is transmitted at 50%
         vec3 scatter = vec3(0.8, 0.1, 0.5); // used to determine the final color of the transmitted or reflected light 
         vec3 center = vec3(0, 0, 0);
@@ -184,7 +182,6 @@ class Sphere: public Object{
 
 vec3 traceScene(vec3 ray_origin, vec3 ray_direction, Sphere* sphere){
     float t0, t1;
-    vec3 background_color = vec3(0.572, 0.772, 0.921);
     if(sphere->intersect(ray_origin, ray_direction, t0, t1)){ //we use -> because we have the pointer, if we have an object we must use .
         if(t1<0){
             //it means that the sphere is behind us
@@ -203,31 +200,59 @@ vec3 traceScene(vec3 ray_origin, vec3 ray_direction, Sphere* sphere){
          * the concept of density is expressed in terms of the absorption coefficient (and scattering coefficient).
          * Essentially, "the denser the volume, the higher the absorption coefficient"
          */
-        float transmission = exp(-distance * sphere->sigma_a);  //how the light is absorbed passing through a mean
+
+        // float light_intensity = 10;
+        // float transmission = exp(-distance * sphere->sigma_a);  //how the light is absorbed passing through a mean
+        // float light_intensity_att = transmission * light_intensity;
         
-        return background_color * transmission + sphere->scatter * (1 - transmission); 
+
+        //ray-marching
+        //commented this way to calculate the step_size because it slows the movements
+        // float projPixWidth = 2 * tanf(M_PI / 180 * 90 / (2 * SCREEN_WIDTH)) * tStart; //consider "how big" is the pixel at the distance where we enter the volume object and set the step size to the dimension of the projected pixel
+        // float step_size = projPixWidth == 0 ? 0.2f : projPixWidth; //the reason why ray-marching takes small steps from t0 to t1 is to estimate an integral
+        float step_size = 0.1f;        int num_steps = std::ceil(distance / step_size); //starting from further point
+        step_size = distance/num_steps;
+        vec3 light_dir{ 0, -1, 0 };
+        vec3 light_color{ 1.3, 0.3, 0.9 };
+        vec3 accumulated_color(0.0f); //starting point
+        float accumulated_transparency = 1.0f;
+
+        float g = 0.8; //asymmetry factor of the phase function
+        for(int i = 0; i < num_steps; i++){
+            //this is the march
+            float tSample = t1 - step_size * (i + 0.5f); //backward marching, from t1 to tstart if we want to implement forward --> tStart + step_size * (i + 0.5f);
+            vec3 sample_pos = ray_origin + ray_direction * tSample; //sample position (middle of the step)
+            
+
+            float density = 1; //we want some kind of variables that will scale our scattering and absorption coefficient globally
+            //BEER'S LAW
+            float sample_transparency = exp(-(sphere->sigma_a + sphere->sigma_s) * step_size); //how many light passes through the sample
+            //how much light arrives here from the light source
+            float lt0, lt1;
+            if(sphere->intersect(sample_pos, light_dir, lt0, lt1)){
+                //in-scattering calculation -> light toward eyes
+                float cos_theta = glm::dot(ray_direction, light_dir);
+                float light_attenuation = exp(-lt1 * density* (sphere->sigma_a + sphere->sigma_s));
+                accumulated_color += phase(g, cos_theta) * light_color * light_attenuation * sphere->sigma_s * density* step_size; //if density = 0, nothing is added to the result!!
+            };
+            accumulated_transparency *= sample_transparency; //update of how many light passes through the next sample
+        }
+        return background_color * accumulated_transparency + accumulated_color;
+
     } else {
         return background_color;
     }
 }
 
-// void renderImage(){
-//     vec3 image_buffer[SCREEN_WIDTH][SCREEN_HEIGHT];
-//     Sphere sphere;
-//     sphere.center = vec3(0, 0, 0);
-//     sphere.radius = 1.0f;
-//     sphere.sigma_a = 0.1f;
-//     for(int y = 0; y < SCREEN_HEIGHT; y++){
-//         for(int x = 0; x < SCREEN_WIDTH; x++){
-//             vec3 ray_dir = computeRay(x, y, SCREEN_HEIGHT/2);
-//             vec3 pixel_color = traceScene(cameraPos, ray_dir, &sphere);
-//             sdl.putPixel(x, y, pixel_color);
-//             //image_buffer[x][y] = pixel_color; 
-//         }
-
-//     } 
-//     saveImage(image_buffer, "output.ppm");  
-// }
+float phase(const float &g, const float &cos_theta){
+    /**
+     * Describes the probability that the light is reflected in a certain direction, this is 
+     * the implementation of Henyey-Greenstein phase function
+     */
+    float denom = 1 + g*g - 2* g * cos_theta;
+    float pi = glm::pi<float>();
+    return 1/ (4 * pi) * (1-g*g)/(denom * sqrtf(denom));
+}
 
 vec3 computeRay(int x, int y, float focalLength){
     vec3 dir = vec3(

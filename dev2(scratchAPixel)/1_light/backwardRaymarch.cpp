@@ -191,7 +191,12 @@ vec3 traceScene(vec3 ray_origin, vec3 ray_direction, Sphere* sphere){
         float distance = glm::length(p2-p1); //distance of the ray in the sphere: how much material the ray has crossed 
         
         //ray-marching
-        float step_size = 0.2f;
+
+
+        //commented this way to calculate the step_size because it slows the movements
+        // float projPixWidth = 2 * tanf(M_PI / 180 * 90 / (2 * SCREEN_WIDTH)) * tStart; //consider "how big" is the pixel at the distance where we enter the volume object and set the step size to the dimension of the projected pixel
+        // float step_size = projPixWidth == 0 ? 0.2f : projPixWidth; //the reason why ray-marching takes small steps from t0 to t1 is to estimate an integral
+        float step_size = 0.1f;
         int num_steps = std::ceil(distance / step_size); //starting from further point
         step_size = distance/num_steps;
         vec3 light_dir{ 0, -1, 0 };
@@ -239,7 +244,7 @@ vec3 computeRay(int x, int y, float focalLength){
         y - SCREEN_HEIGHT/2,
         focalLength
     );
-    return glm::normalize(dir);
+    return glm::normalize(R*dir);
 }
 
 void saveImage(vec3 image_buffer[SCREEN_WIDTH][SCREEN_HEIGHT], const string& filename = "output.ppm") {
