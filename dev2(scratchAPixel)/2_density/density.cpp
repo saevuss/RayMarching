@@ -110,26 +110,6 @@ void Update(void)
 		// Move camera to the right, positive x axis
 		cameraPos += dt*speed*down;
 	}
-	// if(keystate [SDL_SCANCODE_W] )
-	// {
-	// 	// Move light forward
-	// 	lightPos += dt*speed*forward;
-	// }
-	// if(keystate [SDL_SCANCODE_S] )
-	// {
-	// 	// Move light backward
-	// 	lightPos -= dt*speed*forward;
-	// }
-	// if(keystate [SDL_SCANCODE_D] )
-	// {
-	// 	// Move light to the right
-	// 	lightPos += dt*speed*right;
-	// }
-	// if(keystate [SDL_SCANCODE_A] )
-	// {
-	// 	// Move light to the left
-	// 	lightPos -= dt*speed*right;
-	// }
 
 };
 
@@ -182,6 +162,7 @@ class Sphere: public Object{
 
 vec3 traceScene(vec3 ray_origin, vec3 ray_direction, Sphere* sphere){
     float t0, t1;
+    float d = 5.0f; //surviving factor
     if(sphere->intersect(ray_origin, ray_direction, t0, t1)){ //we use -> because we have the pointer, if we have an object we must use .
         if(t1<0){
             //it means that the sphere is behind us
@@ -201,11 +182,6 @@ vec3 traceScene(vec3 ray_origin, vec3 ray_direction, Sphere* sphere){
          * Essentially, "the denser the volume, the higher the absorption coefficient"
          */
 
-        // float light_intensity = 10;
-        // float transmission = exp(-distance * sphere->sigma_a);  //how the light is absorbed passing through a mean
-        // float light_intensity_att = transmission * light_intensity;
-        
-
         //ray-marching
         //commented this way to calculate the step_size because it slows the movements
         // float projPixWidth = 2 * tanf(M_PI / 180 * 90 / (2 * SCREEN_WIDTH)) * tStart; //consider "how big" is the pixel at the distance where we enter the volume object and set the step size to the dimension of the projected pixel
@@ -220,8 +196,9 @@ vec3 traceScene(vec3 ray_origin, vec3 ray_direction, Sphere* sphere){
         float g = 0.8; //asymmetry factor of the phase function
         for(int i = 0; i < num_steps; i++){
             //this is the march
-            float tSample = t1 - step_size * (i + 0.5f); //backward marching, from t1 to tstart if we want to implement forward --> tStart + step_size * (i + 0.5f);
+            float tSample = tStart + step_size * (i + rand()); //forward marching with jittering
             vec3 sample_pos = ray_origin + ray_direction * tSample; //sample position (middle of the step)
+            
             
 
             float density = 1; //we want some kind of variables that will scale our scattering and absorption coefficient globally
@@ -235,7 +212,22 @@ vec3 traceScene(vec3 ray_origin, vec3 ray_direction, Sphere* sphere){
                 float light_attenuation = exp(-lt1 * density* (sphere->sigma_a + sphere->sigma_s));
                 accumulated_color += phase(g, cos_theta) * light_color * light_attenuation * sphere->sigma_s * density* step_size; //if density = 0, nothing is added to the result!!
             };
-            accumulated_transparency *= sample_transparency; //update of how many light passes through the next sample
+            if (accumulated_transparency < 1e-3){
+                /*breaking out from the ray-marching loop as soon as you detect that the 
+                transparency variable is lower than this minimum threshold */
+
+                //implementing russina roulette
+                float r = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX); 
+                if(r > 1/d){
+                    break;
+                } else {
+                    accumulated_transparency *= sample_transparency; //update of how many light passes through the next sample      
+                }
+               
+            }else{
+                accumulated_transparency *= sample_transparency; //update of how many light passes through the next sample      
+
+            }
         }
         return background_color * accumulated_transparency + accumulated_color;
 
