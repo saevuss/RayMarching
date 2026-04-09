@@ -1,7 +1,7 @@
 //from https://github.com/lemonad/DH2323-Skeleton
 #include <SDL.h>
 #include <iostream>
-#include <glm/glm.hpp>
+#include <glm.hpp>
 #include "SDL2Auxiliary.h"
 
 using namespace std;

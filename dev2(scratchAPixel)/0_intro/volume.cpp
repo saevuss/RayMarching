@@ -9,7 +9,7 @@
 #include "SDL2Auxiliary/SDL2Auxiliary.h"
 #include <vector>
 #include <random>
-#include <glm/glm.hpp>
+#include <glm.hpp>
 
 using namespace std;
 using glm::vec3;

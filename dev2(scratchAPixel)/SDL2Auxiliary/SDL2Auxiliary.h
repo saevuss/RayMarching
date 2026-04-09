@@ -4,7 +4,7 @@
 //from https://github.com/lemonad/DH2323-Skeleton
 
 #define SDL_MAIN_HANDLED //circumvent failure of SDL_Init() when not using SDL_main() as an entry point.
-#include <glm/glm.hpp> // fpr vec3, mat3, ecc
+#include <glm.hpp> // fpr vec3, mat3, ecc
 #include <SDL.h>
 
 class SDL2Aux {

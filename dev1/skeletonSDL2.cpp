@@ -9,7 +9,7 @@
 // * Linear interpolation
 
 #include <iostream>
-#include <glm/glm.hpp>
+#include <glm.hpp>
 #include "../SDL2Auxiliary/SDL2Auxiliary.h"
 #include "TestModel.h"
 #include <algorithm>

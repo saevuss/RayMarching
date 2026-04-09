@@ -1,6 +1,6 @@
 #include <SDL.h>
 #include <iostream>
-#include <glm/glm.hpp>
+#include <glm.hpp>
 #include "noise.h"
 #include<stdlib.h>
 #include<stdio.h>

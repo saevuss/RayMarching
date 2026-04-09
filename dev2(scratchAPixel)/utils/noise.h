@@ -1,7 +1,7 @@
 #ifndef NOISE_H
 #define NOISE_H
 
-#include <glm/glm.hpp>
+#include <glm.hpp>
 
 double fade(double t);
 double lerp(double t, double a, double b);
